@@ -287,7 +287,11 @@ struct DockSettings: View {
         } set: { target in
             dockDisplayLockTarget = target.storageValue
             DockDisplayLockService.shared.syncWithPreferences()
-            DockDisplayLockService.shared.moveDockToAnchor()
+            // Once the picker's menu has closed: called while it was still
+            // closing, the press on the edge left the Dock where it was.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                DockDisplayLockService.shared.moveDockToAnchor()
+            }
         }
     }
 
