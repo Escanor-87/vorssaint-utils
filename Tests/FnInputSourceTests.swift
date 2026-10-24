@@ -127,9 +127,14 @@ enum FnInputSourceTests {
                      "events that are not input pass by without touching the press")
 
         let none: (CGKeyCode) -> Bool = { _ in false }
+        // Found on a Magic Keyboard (macOS 27.0.1): with the lock on, the
+        // key state of Caps Lock itself reads down the whole time.
+        let capsLockOn: (CGKeyCode) -> Bool = { Int64($0) == FnInputSourceSupport.capsLockKeyCode }
         suite.expect(!FnInputSourceSupport.otherInputHeld(flags: [.maskSecondaryFn, .maskAlphaShift],
-                                                          isKeyDown: none),
-                     "Caps Lock already on does not stop a tap")
+                                                          isKeyDown: none)
+                && !FnInputSourceSupport.otherInputHeld(flags: [.maskSecondaryFn, .maskAlphaShift],
+                                                        isKeyDown: capsLockOn),
+                     "Caps Lock already on does not stop a tap, though its key reads down while locked")
         suite.expect(FnInputSourceSupport.otherInputHeld(flags: .maskCommand, isKeyDown: none)
                 && FnInputSourceSupport.otherInputHeld(flags: .maskShift, isKeyDown: none)
                 && FnInputSourceSupport.otherInputHeld(flags: .maskControl, isKeyDown: none)

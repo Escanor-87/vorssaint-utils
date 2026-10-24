@@ -58,13 +58,18 @@ enum FnInputSourceSupport {
     /// still counts.
     static let chordModifiers: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand]
 
+    /// Caps Lock, `kVK_CapsLock`. Its key state reads down for as long as the
+    /// lock is on, not while the key is pressed.
+    static let capsLockKeyCode: Int64 = 57
+
     /// Whether anything besides Fn is held at the moment of `flags`: a
-    /// chord modifier, or any key `isKeyDown` reports down. Fn itself is
-    /// skipped, and Caps Lock reports its key, not its lock.
+    /// chord modifier, or any key `isKeyDown` reports down. Fn itself and
+    /// Caps Lock are skipped: a press of Caps Lock during the tap arrives as
+    /// its own modifier change and ends the tap there.
     static func otherInputHeld(flags: CGEventFlags, isKeyDown: (CGKeyCode) -> Bool) -> Bool {
         guard flags.intersection(chordModifiers).isEmpty else { return true }
         return (0..<128).contains { code in
-            Int64(code) != fnKeyCode && isKeyDown(CGKeyCode(code))
+            Int64(code) != fnKeyCode && Int64(code) != capsLockKeyCode && isKeyDown(CGKeyCode(code))
         }
     }
 
