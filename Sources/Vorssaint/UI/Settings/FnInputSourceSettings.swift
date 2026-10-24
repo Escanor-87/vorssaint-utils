@@ -46,9 +46,14 @@ struct FnInputSourceSettings: View {
 
             Section(text.systemSection) {
                 if systemAction == .nothing {
-                    Label(text.systemNothing, systemImage: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Label {
+                        Text(text.systemNothing)
+                            .foregroundStyle(.secondary)
+                    } icon: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                    .font(.caption)
                 } else {
                     Label(text.systemOther, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
