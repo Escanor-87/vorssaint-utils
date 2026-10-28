@@ -25,6 +25,7 @@ final class FnInputSourceService: ObservableObject {
     private var pendingStartAfterStop = false
     private var lifecycleGeneration: UInt = 0
     private var recognizer = FnInputSourceSupport.Recognizer()
+    private var pressedKeys = FnInputSourceSupport.PressedKeys()
 
     /// Presses the window server counts as key or button input. A press
     /// another tap swallowed before this one still moves these counters, and
@@ -64,7 +65,10 @@ final class FnInputSourceService: ObservableObject {
     }
 
     private func feed(_ event: FnInputSourceSupport.Recognizer.Event) {
-        _ = eventLock.withLock { recognizer.handle(event) }
+        eventLock.withLock {
+            _ = recognizer.handle(event)
+            if event == .interrupted { pressedKeys.reset() }
+        }
     }
 
     private func start() {
@@ -249,30 +253,30 @@ final class FnInputSourceService: ObservableObject {
             return Unmanaged.passUnretained(event)
         }
 
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let reading = FnInputSourceSupport.reading(type: type,
-                                                   keyCode: event.getIntegerValueField(.keyboardEventKeycode),
+                                                   keyCode: keyCode,
                                                    flags: event.flags,
                                                    isOwnEvent: OwnKeyEvent.isPosted(event))
-        let input: FnInputSourceSupport.Recognizer.Event
-        switch reading {
-        case .unrelated:
-            return Unmanaged.passUnretained(event)
-        case .otherInput:
-            input = .otherInput
-        case .fnDown, .fnUp:
-            let timestamp = EventTimestamp.nanoseconds(of: event)
-            let held = FnInputSourceSupport.otherInputHeld(flags: event.flags) {
-                CGEventSource.keyState(.hidSystemState, key: $0)
+        let completesTap = eventLock.withLock { () -> Bool in
+            pressedKeys.note(type: type, keyCode: keyCode)
+            switch reading {
+            case .unrelated:
+                return false
+            case .otherInput:
+                return recognizer.handle(.otherInput)
+            case .fnDown, .fnUp:
+                let timestamp = EventTimestamp.nanoseconds(of: event)
+                let keyHeld = pressedKeys.anyHeld { CGEventSource.keyState(.hidSystemState, key: $0) }
+                let held = FnInputSourceSupport.otherInputHeld(flags: event.flags, keyHeld: keyHeld)
+                let activity = Self.activityTypes.reduce(UInt64(0)) {
+                    $0 &+ UInt64(CGEventSource.counterForEventType(.hidSystemState, eventType: $1))
+                }
+                return recognizer.handle(reading == .fnDown
+                    ? .fnDown(timestamp: timestamp, otherInputHeld: held, activity: activity)
+                    : .fnUp(timestamp: timestamp, otherInputHeld: held, activity: activity))
             }
-            let activity = Self.activityTypes.reduce(UInt64(0)) {
-                $0 &+ UInt64(CGEventSource.counterForEventType(.hidSystemState, eventType: $1))
-            }
-            input = reading == .fnDown
-                ? .fnDown(timestamp: timestamp, otherInputHeld: held, activity: activity)
-                : .fnUp(timestamp: timestamp, otherInputHeld: held, activity: activity)
         }
-
-        let completesTap = eventLock.withLock { recognizer.handle(input) }
         if completesTap {
             // Selected before the release goes on, so the key typed next
             // already lands in the new source.

@@ -58,19 +58,45 @@ enum FnInputSourceSupport {
     /// still counts.
     static let chordModifiers: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand]
 
-    /// Caps Lock, `kVK_CapsLock`. Its key state reads down for as long as the
-    /// lock is on, not while the key is pressed.
-    static let capsLockKeyCode: Int64 = 57
+    /// The keys the tap saw go down and not come up yet, for telling whether
+    /// another key is held when Fn goes down or up.
+    ///
+    /// The system's key state alone cannot say that: Caps Lock reads down for
+    /// as long as its lock is on, and a keyboard can leave a code down at
+    /// rest (127 on a built-in MacBook keyboard, found in review). A key
+    /// counts only while both agree, so such a code never blocks a tap, and a
+    /// release the tap missed clears itself the next time the system says
+    /// the key is up. A key already down before the tap started is not seen.
+    struct PressedKeys: Equatable {
+        private(set) var codes: Set<Int64> = []
 
-    /// Whether anything besides Fn is held at the moment of `flags`: a
-    /// chord modifier, or any key `isKeyDown` reports down. Fn itself and
-    /// Caps Lock are skipped: a press of Caps Lock during the tap arrives as
-    /// its own modifier change and ends the tap there.
-    static func otherInputHeld(flags: CGEventFlags, isKeyDown: (CGKeyCode) -> Bool) -> Bool {
-        guard flags.intersection(chordModifiers).isEmpty else { return true }
-        return (0..<128).contains { code in
-            Int64(code) != fnKeyCode && Int64(code) != capsLockKeyCode && isKeyDown(CGKeyCode(code))
+        mutating func note(type: CGEventType, keyCode: Int64) {
+            switch type {
+            case .keyDown: codes.insert(keyCode)
+            case .keyUp: codes.remove(keyCode)
+            default: break
+            }
         }
+
+        mutating func reset() {
+            codes = []
+        }
+
+        /// Whether a key besides Fn is held now, dropping every one the
+        /// system no longer reports down.
+        mutating func anyHeld(isKeyDown: (CGKeyCode) -> Bool) -> Bool {
+            codes = codes.filter { code in
+                code != FnInputSourceSupport.fnKeyCode
+                    && CGKeyCode(exactly: code).map(isKeyDown) == true
+            }
+            return !codes.isEmpty
+        }
+    }
+
+    /// Whether the press of Fn is part of a chord at the moment of `flags`:
+    /// a chord modifier is down, or `keyHeld` says another key is.
+    static func otherInputHeld(flags: CGEventFlags, keyHeld: Bool) -> Bool {
+        keyHeld || !flags.intersection(chordModifiers).isEmpty
     }
 
     /// Recognizes one solo tap of Fn at a time.

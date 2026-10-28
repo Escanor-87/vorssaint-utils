@@ -126,23 +126,43 @@ enum FnInputSourceTests {
         suite.expect(reading(.mouseMoved) == .unrelated && reading(.tapDisabledByTimeout) == .unrelated,
                      "events that are not input pass by without touching the press")
 
-        let none: (CGKeyCode) -> Bool = { _ in false }
-        // Found on a Magic Keyboard (macOS 27.0.1): with the lock on, the
-        // key state of Caps Lock itself reads down the whole time.
-        let capsLockOn: (CGKeyCode) -> Bool = { Int64($0) == FnInputSourceSupport.capsLockKeyCode }
-        suite.expect(!FnInputSourceSupport.otherInputHeld(flags: [.maskSecondaryFn, .maskAlphaShift],
-                                                          isKeyDown: none)
-                && !FnInputSourceSupport.otherInputHeld(flags: [.maskSecondaryFn, .maskAlphaShift],
-                                                        isKeyDown: capsLockOn),
-                     "Caps Lock already on does not stop a tap, though its key reads down while locked")
-        suite.expect(FnInputSourceSupport.otherInputHeld(flags: .maskCommand, isKeyDown: none)
-                && FnInputSourceSupport.otherInputHeld(flags: .maskShift, isKeyDown: none)
-                && FnInputSourceSupport.otherInputHeld(flags: .maskControl, isKeyDown: none)
-                && FnInputSourceSupport.otherInputHeld(flags: .maskAlternate, isKeyDown: none),
-                     "a held Shift, Control, Option or Command makes the press a chord")
-        suite.expect(FnInputSourceSupport.otherInputHeld(flags: [], isKeyDown: { $0 == 0 })
-                && !FnInputSourceSupport.otherInputHeld(flags: [], isKeyDown: { Int64($0) == fn }),
-                     "any key held besides Fn makes the press a chord; Fn itself does not")
+        suite.expect(!FnInputSourceSupport.otherInputHeld(flags: [.maskSecondaryFn, .maskAlphaShift], keyHeld: false),
+                     "Caps Lock already on does not stop a tap")
+        suite.expect(FnInputSourceSupport.otherInputHeld(flags: .maskCommand, keyHeld: false)
+                && FnInputSourceSupport.otherInputHeld(flags: .maskShift, keyHeld: false)
+                && FnInputSourceSupport.otherInputHeld(flags: .maskControl, keyHeld: false)
+                && FnInputSourceSupport.otherInputHeld(flags: .maskAlternate, keyHeld: false)
+                && FnInputSourceSupport.otherInputHeld(flags: .maskSecondaryFn, keyHeld: true),
+                     "a held Shift, Control, Option, Command or other key makes the press a chord")
+
+        // What the system reports down at rest on real keyboards: Caps Lock
+        // while its lock is on (Magic Keyboard), and 127 on a built-in
+        // MacBook keyboard. Neither was pressed, so neither may hold a tap.
+        let atRest: Set<CGKeyCode> = [57, 127]
+        var idle = FnInputSourceSupport.PressedKeys()
+        suite.expect(!idle.anyHeld { atRest.contains($0) },
+                     "a code the system reports down without the tap seeing it pressed is not a held key")
+
+        var held = FnInputSourceSupport.PressedKeys()
+        held.note(type: .keyDown, keyCode: 0)
+        suite.expect(held.anyHeld { $0 == 0 || atRest.contains($0) },
+                     "a key pressed and still down is held")
+        held.note(type: .keyUp, keyCode: 0)
+        suite.expect(!held.anyHeld { $0 == 0 }, "a key pressed and released is no longer held")
+
+        var missedRelease = FnInputSourceSupport.PressedKeys()
+        missedRelease.note(type: .keyDown, keyCode: 51)
+        suite.expect(!missedRelease.anyHeld { _ in false } && missedRelease.codes.isEmpty,
+                     "a key whose release the tap missed clears once the system reports it up")
+
+        var onlyFn = FnInputSourceSupport.PressedKeys()
+        onlyFn.note(type: .keyDown, keyCode: fn)
+        suite.expect(!onlyFn.anyHeld { _ in true }, "Fn itself never counts as another held key")
+
+        var interrupted = FnInputSourceSupport.PressedKeys()
+        interrupted.note(type: .keyDown, keyCode: 0)
+        interrupted.reset()
+        suite.expect(!interrupted.anyHeld { _ in true }, "an interruption forgets every press")
 
         suite.expect(FnInputSourceSupport.systemAction(raw: NSNumber(value: 0)) == .nothing
                 && FnInputSourceSupport.systemAction(raw: NSNumber(value: 1)) == .something
