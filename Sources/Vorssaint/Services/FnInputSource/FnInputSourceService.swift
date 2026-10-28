@@ -239,6 +239,17 @@ final class FnInputSourceService: ObservableObject {
         }
     }
 
+    /// Debounce can run before this tap at the same HID stage. Observe its
+    /// rejected physical keys before they disappear, regardless of tap order.
+    /// Seeing a key twice is harmless: the pressed-key set and cancellation
+    /// are idempotent. Never take the debounce lock while holding eventLock.
+    func observeFilteredKey(type: CGEventType, event: CGEvent) {
+        guard type == .keyDown || type == .keyUp,
+              lifecycleLock.withLock({ tapThread != nil && !shouldStopTapThread })
+        else { return }
+        _ = handle(type: type, event: event)
+    }
+
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             // Events went by while the tap was off, so a press under way
@@ -254,12 +265,15 @@ final class FnInputSourceService: ObservableObject {
         }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        let isOwnEvent = OwnKeyEvent.isPosted(event)
         let reading = FnInputSourceSupport.reading(type: type,
                                                    keyCode: keyCode,
                                                    flags: event.flags,
-                                                   isOwnEvent: OwnKeyEvent.isPosted(event))
+                                                   isOwnEvent: isOwnEvent)
         let completesTap = eventLock.withLock { () -> Bool in
-            pressedKeys.note(type: type, keyCode: keyCode)
+            // Posted keys cancel a candidate but cannot release a physical
+            // key the user still holds, or invent another physical press.
+            if !isOwnEvent { pressedKeys.note(type: type, keyCode: keyCode) }
             switch reading {
             case .unrelated:
                 return false

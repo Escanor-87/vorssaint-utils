@@ -880,10 +880,26 @@ def main():
           + declaration(smooth, "    private static func pixelField(").replace("private static", "static", 1)
           + smooth_post.replace("event.postToPid(target.processID)", "SmoothScrollRoutingTests.record(event, to: target.processID)")
           + "}\n")
+    debounce_handler = declaration("Sources/Vorssaint/Services/KeyboardDebounce/KeyboardDebounceService.swift",
+                                   "    private func handle(type:")
+    if debounce_handler.count("FnInputSourceService.shared") != 1:
+        raise ValueError("Expected one Fn observer before debounce drops a key")
     write("KeyboardDebounceTap.swift", "import ApplicationServices\nimport CoreGraphics\nimport Foundation\n"
           + "extension KeyboardDebounceTapTests.Service {\n"
-          + declaration("Sources/Vorssaint/Services/KeyboardDebounce/KeyboardDebounceService.swift",
-                        "    private func handle(type:").replace("private func", "func", 1)
+          + debounce_handler.replace("private func", "func", 1)
+              .replace("FnInputSourceService.shared", "FnInputSourceTapTests.Service.shared")
+          + "}\n")
+    fn_source = "Sources/Vorssaint/Services/FnInputSource/FnInputSourceService.swift"
+    activity_lines = [line for line in (ROOT / fn_source).read_text().splitlines()
+                      if line.startswith("    private static let activityTypes:")]
+    if len(activity_lines) != 1:
+        raise ValueError("Expected one Fn activity-counter declaration")
+    write("FnInputSourceTap.swift", "import ApplicationServices\nimport CoreGraphics\nimport Foundation\n"
+          + "extension FnInputSourceTapTests.Service {\n"
+          + activity_lines[0].replace("private static", "static", 1) + "\n"
+          + declaration(fn_source, "    private func feed(").replace("private func", "func", 1)
+          + declaration(fn_source, "    func observeFilteredKey(")
+          + declaration(fn_source, "    private func handle(type:").replace("private func", "func", 1)
           + "}\n")
     # Entire input/mute services retain their production control flow. Only
     # visibility, scheduling, defaults and HAL transport are replaced by fixtures.

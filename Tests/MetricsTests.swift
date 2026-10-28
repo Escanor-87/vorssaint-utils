@@ -158,6 +158,7 @@ struct MetricsTests {
             ("keyboard", {
                 KeyboardFeatureTests.run(suite)
                 FnInputSourceTests.run(suite)
+                FnInputSourceTapTests.run(suite)
                 AssistiveKeyboardTests.run(suite)
                 ScreenshotToolShortcutTests.run(suite)
             }),
