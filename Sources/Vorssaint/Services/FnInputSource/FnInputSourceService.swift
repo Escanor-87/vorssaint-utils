@@ -12,6 +12,8 @@ import Foundation
 /// and every event leaves the tap as it came. Requires Accessibility.
 final class FnInputSourceService: ObservableObject {
     static let shared = FnInputSourceService()
+    private static let instanceLock = NSLock()
+    private static weak var existingInstance: FnInputSourceService?
 
     @Published private(set) var isRunning = false
 
@@ -33,12 +35,14 @@ final class FnInputSourceService: ObservableObject {
     private static let activityTypes: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
 
     private init() {
+        precondition(Thread.isMainThread)
         SessionActivity.shared.onChange { [weak self] _ in self?.syncWithPreferences() }
         // The event clock stops while the Mac sleeps, so a press held across
         // sleep would read as short on wake.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: nil
         ) { [weak self] _ in self?.feed(.interrupted) }
+        Self.instanceLock.withLock { Self.existingInstance = self }
     }
 
     func syncWithPreferences() {
@@ -243,7 +247,14 @@ final class FnInputSourceService: ObservableObject {
     /// rejected physical keys before they disappear, regardless of tap order.
     /// Seeing a key twice is harmless: the pressed-key set and cancellation
     /// are idempotent. Never take the debounce lock while holding eventLock.
-    func observeFilteredKey(type: CGEventType, event: CGEvent) {
+    static func observeFilteredKeyIfRunning(type: CGEventType, event: CGEvent) {
+        // A debounce callback must not initialize an uninstalled feature or
+        // register its main-thread session observers from a HID thread.
+        let instance = instanceLock.withLock { existingInstance }
+        instance?.observeFilteredKey(type: type, event: event)
+    }
+
+    private func observeFilteredKey(type: CGEventType, event: CGEvent) {
         guard type == .keyDown || type == .keyUp,
               lifecycleLock.withLock({ tapThread != nil && !shouldStopTapThread })
         else { return }

@@ -900,23 +900,28 @@ def main():
           + "}\n")
     debounce_handler = declaration("Sources/Vorssaint/Services/KeyboardDebounce/KeyboardDebounceService.swift",
                                    "    private func handle(type:")
-    if debounce_handler.count("FnInputSourceService.shared") != 1:
+    if debounce_handler.count("FnInputSourceService.") != 1:
         raise ValueError("Expected one Fn observer before debounce drops a key")
     write("KeyboardDebounceTap.swift", "import ApplicationServices\nimport CoreGraphics\nimport Foundation\n"
           + "extension KeyboardDebounceTapTests.Service {\n"
           + debounce_handler.replace("private func", "func", 1)
-              .replace("FnInputSourceService.shared", "FnInputSourceTapTests.Service.shared")
+              .replace("FnInputSourceService.", "FnInputSourceTapTests.Service.")
           + "}\n")
     fn_source = "Sources/Vorssaint/Services/FnInputSource/FnInputSourceService.swift"
-    activity_lines = [line for line in (ROOT / fn_source).read_text().splitlines()
-                      if line.startswith("    private static let activityTypes:")]
-    if len(activity_lines) != 1:
-        raise ValueError("Expected one Fn activity-counter declaration")
+    fn_statics = [line for line in (ROOT / fn_source).read_text().splitlines()
+                  if line.startswith(("    static let shared =", "    private static let instanceLock =",
+                                      "    private static weak var existingInstance:",
+                                      "    private static let activityTypes:"))]
+    if len(fn_statics) != 4:
+        raise ValueError("Expected the Fn singleton, instance registry and activity-counter declarations")
     write("FnInputSourceTap.swift", "import ApplicationServices\nimport CoreGraphics\nimport Foundation\n"
           + "extension FnInputSourceTapTests.Service {\n"
-          + activity_lines[0].replace("private static", "static", 1) + "\n"
+          + "\n".join(fn_statics).replace("private static", "static")
+              .replace("FnInputSourceService", "FnInputSourceTapTests.Service") + "\n"
+          + declaration(fn_source, "    private init()").replace("private init()", "func initialize()", 1)
           + declaration(fn_source, "    private func feed(").replace("private func", "func", 1)
-          + declaration(fn_source, "    func observeFilteredKey(")
+          + declaration(fn_source, "    static func observeFilteredKeyIfRunning(")
+          + declaration(fn_source, "    private func observeFilteredKey(").replace("private func", "func", 1)
           + declaration(fn_source, "    private func handle(type:").replace("private func", "func", 1)
           + "}\n")
     # Entire input/mute services retain their production control flow. Only

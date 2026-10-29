@@ -23,6 +23,21 @@ enum FnInputSourceTapTests {
     final class SessionActivity {
         static let shared = SessionActivity()
         let isActive = true
+        private let lock = NSLock()
+        private var registrations: [Bool] = []
+        var registrationThreads: [Bool] { lock.withLock { registrations } }
+        func onChange(_ handler: @escaping (Bool) -> Void) {
+            lock.withLock { registrations.append(Thread.isMainThread) }
+        }
+    }
+    final class NSWorkspace {
+        static let shared = NSWorkspace()
+        static let willSleepNotification = Notification.Name("testSleep")
+        let notificationCenter = Center()
+        final class Center {
+            func addObserver(forName: Notification.Name, object: Any?, queue: OperationQueue?,
+                             using handler: @escaping (Notification) -> Void) {}
+        }
     }
     final class Service {
         // Bind transports on the extended type itself: an out-of-line
@@ -30,7 +45,7 @@ enum FnInputSourceTapTests {
         typealias CGEventSource = FnInputSourceTapTests.CGEventSource
         typealias InputSourceSelection = FnInputSourceTapTests.InputSourceSelection
         typealias SessionActivity = FnInputSourceTapTests.SessionActivity
-        static var shared = Service()
+        typealias NSWorkspace = FnInputSourceTapTests.NSWorkspace
         let eventLock = NSLock()
         let lifecycleLock = NSLock()
         var recognizer = FnInputSourceSupport.Recognizer()
@@ -38,6 +53,7 @@ enum FnInputSourceTapTests {
         var shouldStopTapThread = false
         var tapThread: Thread? = Thread {}
         var tap: CFMachPort?
+        init() { initialize() }
         func syncWithPreferences() {}
     }
 
@@ -45,8 +61,7 @@ enum FnInputSourceTapTests {
         CGEventSource.keys = []
         CGEventSource.presses = 0
         InputSourceSelection.switches = 0
-        Service.shared = Service()
-        return Service.shared
+        return Service()
     }
 
     private static func event(_ type: CGEventType, key: CGKeyCode = 0,
@@ -71,6 +86,25 @@ enum FnInputSourceTapTests {
     }
 
     static func run(_ suite: TestSuite) {
+        final class CallbackResult { var passed: [Bool] = [] }
+        let callbackResult = CallbackResult()
+        let coldDebounce = KeyboardDebounceTapTests.Service()
+        let callbackFinished = DispatchSemaphore(value: 0)
+        Thread {
+            for (type, time): (CGEventType, UInt64) in [(.keyDown, 100), (.keyUp, 110),
+                                                       (.keyDown, 120), (.keyUp, 130)] {
+                callbackResult.passed.append(
+                    coldDebounce.handle(type: type, event: event(type, milliseconds: time)) != nil)
+            }
+            callbackFinished.signal()
+        }.start()
+        suite.expect(callbackFinished.wait(timeout: .now() + 5) == .success,
+                     "debounce can drop keys without waiting for the main thread")
+        suite.expect(callbackResult.passed == [true, true, false, true],
+                     "the background callback suppresses a rapid physical press but preserves releases")
+        suite.expect(SessionActivity.shared.registrationThreads.isEmpty,
+                     "suppressed keys with Fn uninitialized do not register any session observer")
+
         for debounceFirst in [true, false] {
             let fnService = fresh()
             let debounce = KeyboardDebounceTapTests.Service()
@@ -130,11 +164,13 @@ enum FnInputSourceTapTests {
 
         let stopped = fresh()
         stopped.shouldStopTapThread = true
-        stopped.observeFilteredKey(type: .keyDown, event: event(.keyDown, milliseconds: 100))
+        Service.observeFilteredKeyIfRunning(type: .keyDown, event: event(.keyDown, milliseconds: 100))
         suite.expect(stopped.pressedKeys.codes.isEmpty, "debounce cannot feed a stopping Fn service")
         stopped.shouldStopTapThread = false
         stopped.tapThread = nil
-        stopped.observeFilteredKey(type: .keyDown, event: event(.keyDown, milliseconds: 110))
+        Service.observeFilteredKeyIfRunning(type: .keyDown, event: event(.keyDown, milliseconds: 110))
         suite.expect(stopped.pressedKeys.codes.isEmpty, "debounce cannot feed an inactive Fn service")
+        suite.expect(SessionActivity.shared.registrationThreads.allSatisfy { $0 },
+                     "Fn session observers are registered only by main-thread initialization")
     }
 }

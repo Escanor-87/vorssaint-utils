@@ -270,7 +270,7 @@ final class KeyboardDebounceService: ObservableObject {
         if shouldSuppress {
             // Another HID tap can be behind us. Preserve the physical chord
             // for Fn even when this key never reaches its own callback.
-            FnInputSourceService.shared.observeFilteredKey(type: type, event: event)
+            FnInputSourceService.observeFilteredKeyIfRunning(type: type, event: event)
             return nil
         }
         return Unmanaged.passUnretained(event)

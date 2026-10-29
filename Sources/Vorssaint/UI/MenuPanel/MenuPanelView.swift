@@ -1932,6 +1932,7 @@ struct QuickControlsSection: View {
         showRadialMenu = true
         showMouseButtonShortcuts = true
         showSuperKey = true
+        showFnInputSource = true
         showMouseAcceleration = true
         showLinearScroll = true
         showMouseClickDebounce = true
